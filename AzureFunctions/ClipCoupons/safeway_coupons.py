@@ -1,7 +1,5 @@
 #!/usr/bin/python3
 
-import argparse
-import configparser
 import datetime
 import email.mime.text
 import itertools
@@ -14,53 +12,26 @@ import sys
 import time
 import traceback
 
-# Parse options
 description = 'Automatically add online coupons to your Safeway card'
-arg_parser = argparse.ArgumentParser(description=description)
-arg_parser.add_argument('-c', '--accounts-config', dest='accounts_config',
-                        metavar='file', required=True,
-                        help=('Path to configuration file containing Safeway '
-                              'accounts information'))
-arg_parser.add_argument('-d', '--debug', dest='debug', action='count',
-                        default=0,
-                        help='Print debugging information on stdout. Specify '
-                             'twice to increase verbosity.')
-arg_parser.add_argument('-n', '--no-email', dest='email', action='store_false',
-                        help=('Print summary information on standard output '
-                              'instead of sending email'))
-arg_parser.add_argument('-S', '--no-sleep', dest='sleep_skip', action='count',
-                        default=0,
-                        help=('Don\'t sleep between long requests. Specify '
-                              'twice to never sleep.'))
-options = arg_parser.parse_args()
-
-email_sender = ''
+options = {
+    'debug': True,
+    'email': False,
+    'email_sender': '',
+    'sleep_skip': 0
+}
 auth = []
 
-if not os.path.isfile(options.accounts_config):
-    raise Exception('Accounts configuration file {} does not '
-                    'exist.'.format(options.accounts_config))
+account = {
+    'username': os.environ["safeway_username"],
+    'password': os.environ["safeway_password"]
+}
+auth.append(account)
 
-config = configparser.ConfigParser()
-config.read_file(itertools.chain(['[_no_section]'],
-                                 open(options.accounts_config, 'r')))
-
-for section in config.sections():
-    if section in ['_no_section', '_global']:
-        if config.has_option(section, 'email_sender'):
-            email_sender = config.get(section, 'email_sender')
-    else:
-        account = {'username': section,
-                   'password': config.get(section, 'password')}
-        if config.has_option(section, 'notify'):
-            account.update({'notify': config.get(section, 'notify')})
-        auth.append(account)
-
-if not email_sender:
-    if options.email:
+if not options['email_sender']:
+    if options['email']:
         print('Warning: No email_sender defined. Summary information will be '
               'printed on standard output instead.', file=sys.stderr)
-        options.email = False
+        options['email'] = False
 if len(auth) == 0:
     raise Exception('No valid accounts defined.')
 
@@ -115,7 +86,7 @@ class safeway():
 
     def _send_mail(self):
         email_to = self.auth.get('notify') or self.auth.get('username')
-        email_from = email_sender
+        email_from = options.get('email_sender')
 
         if self.mail_message[0].startswith('Coupon: '):
             self.mail_message.insert(0, 'Clipped coupons for items you buy:')
@@ -124,7 +95,7 @@ class safeway():
         self.mail_message.insert(0, account_str)
         mail_message_str = os.linesep.join(self.mail_message)
 
-        if not options.email:
+        if not options['email']:
             print(mail_message_str)
             return
 
@@ -139,7 +110,7 @@ class safeway():
         if self.mail_subject:
             email_data['Subject'] = self.mail_subject
 
-        if options.debug:
+        if options['debug']:
             self._debug('Skip sending email due to -d/--debug')
             return
 
@@ -148,7 +119,7 @@ class safeway():
         p.communicate(bytes(email_data.as_string(), 'UTF-8'))
 
     def _debug(self, message, level=1):
-        if options.debug >= level:
+        if options['debug'] >= level:
             print(message)
 
     def _init_session(self):
@@ -300,7 +271,7 @@ class safeway():
                         self._save_coupon_details(offer, coupon_type)
                     # Simulate longer pauses for "scrolling" and "paging"
                     if i > 0 and i % 12 == 0:
-                        if options.sleep_skip < 1:
+                        if options['sleep_skip'] < 1:
                             if i % 48 == 0:
                                 w = random.uniform(15.0, 25.0)
                             else:
@@ -309,7 +280,7 @@ class safeway():
                             self._debug('Waiting {} seconds'.format(str(w)))
                             time.sleep(w)
                     else:
-                        if options.sleep_skip < 2:
+                        if options['sleep_skip'] < 2:
                             time.sleep(random.uniform(0.3, 0.8) *
                                        sleep_multiplier)
                         pass
@@ -328,9 +299,7 @@ class safeway():
                 self._mail_append('Coupon clip errors: '
                                   '{:d}'.format(error_count))
 
-
-def main():
-    exit_code = 0
+def run():
     for index, user_data in enumerate(auth):
         try:
             safeway(user_data)
@@ -340,8 +309,3 @@ def main():
             exit_code = 1
         if index < len(auth) - 1:
             time.sleep(random.uniform(5.0, 10.0) * sleep_multiplier)
-    sys.exit(exit_code)
-
-
-if __name__ == '__main__':
-    main()
